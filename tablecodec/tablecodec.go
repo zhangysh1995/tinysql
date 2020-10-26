@@ -16,7 +16,9 @@ package tablecodec
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/pingcap/errors"
@@ -39,7 +41,7 @@ var (
 const (
 	idLen     = 8
 	prefixLen = 1 + idLen /*tableID*/ + 2
-	// RecordRowKeyLen is public for calculating avgerage row size.
+	// RecordRowKeyLen is public for calculating average row size.
 	RecordRowKeyLen       = prefixLen + idLen /*handle*/
 	tablePrefixLength     = 1
 	recordPrefixSepLength = 2
@@ -71,8 +73,42 @@ func EncodeRowKeyWithHandle(tableID int64, handle int64) kv.Key {
 
 // DecodeRecordKey decodes the key and gets the tableID, handle.
 func DecodeRecordKey(key kv.Key) (tableID int64, handle int64, err error) {
-	/* Your code here */
-	return
+	// I think it is possible to refactor and reuse the code for DecodeIndexKeyPrefix
+	// for grading and clean reasons, I modified the code and fill the function here
+	if len(key) < RecordRowKeyLen {
+		return tableID, handle,
+			errors.NotValidf(fmt.Sprintf("Index key %s ", string(key)))
+	}
+
+	// table prefix check
+	if strings.Compare(string(key[0:tablePrefixLength]), string(tablePrefix)) != 0 {
+		return tableID, handle,
+			errors.NotValidf(fmt.Sprintf("Table prefix %s", string(key[0])))
+	}
+
+	// tip points to start of the next part
+	tip := len(tablePrefix)
+
+	// table ID check
+	tidencoded := key[tip : tip+idLen]
+	_, tid, err := codec.DecodeInt(tidencoded)
+	if err != nil {
+		return tableID, handle,
+			errors.NotValidf(fmt.Sprintf("Table ID %d %s", tid, tidencoded))
+	} else {
+		tableID = tid
+		tip += idLen
+	}
+
+	// record Prefix check
+	if strings.Compare(string(key[tip:prefixLen]), string(recordPrefixSep)) != 0 {
+		return tableID, handle,
+			errors.NotValidf(fmt.Sprintf("Record prefix %s", string(key[tip:prefixLen-1])))
+	}
+
+	// skip the next '_'
+	_, handle, err = codec.DecodeInt(key[prefixLen:])
+	return tableID, handle, nil
 }
 
 // appendTableIndexPrefix appends table index prefix  "t[tableID]_i".
@@ -94,7 +130,53 @@ func EncodeIndexSeekKey(tableID int64, idxID int64, encodedValue []byte) kv.Key 
 
 // DecodeIndexKeyPrefix decodes the key and gets the tableID, indexID, indexValues.
 func DecodeIndexKeyPrefix(key kv.Key) (tableID int64, indexID int64, indexValues []byte, err error) {
-	/* Your code here */
+	// the key must contain index
+	// reject if the length is too short
+	if len(key) < prefixLen+idLen+1 {
+		return tableID, indexID, indexValues,
+			errors.NotValidf(fmt.Sprintf("Index key %s ", string(key)))
+	}
+
+	// table prefix check
+	if strings.Compare(string(key[0:tablePrefixLength]), string(tablePrefix)) != 0 {
+		return tableID, indexID, indexValues,
+			errors.NotValidf(fmt.Sprintf("Table prefix %s", string(key[0])))
+	}
+
+	// tip points to start of the next part
+	tip := len(tablePrefix)
+
+	// table ID check
+	tidencoded := key[tip : tip+idLen]
+	_, tid, err := codec.DecodeInt(tidencoded)
+	if err != nil {
+		return tableID, indexID, indexValues,
+			errors.NotValidf(fmt.Sprintf("Table ID %d %s", tid, tidencoded))
+	} else {
+		tableID = tid
+		tip += idLen
+	}
+
+	// indexPrefix check
+	if strings.Compare(string(key[tip:prefixLen]), string(indexPrefixSep)) != 0 {
+		return tableID, indexID, indexValues,
+			errors.NotValidf(fmt.Sprintf("Index prefix %s", string(key[tip:prefixLen-1])))
+	}
+	tip = prefixLen
+
+	// indexID check
+	iidencoded := key[tip : tip+idLen]
+	_, iid, err := codec.DecodeInt(iidencoded)
+	if err != nil {
+		return tableID, indexID, indexValues, err
+	} else {
+		indexID = iid
+		tip += idLen
+	}
+
+	// indexValue check
+	indexValues = key[tip:]
+
 	return tableID, indexID, indexValues, nil
 }
 
