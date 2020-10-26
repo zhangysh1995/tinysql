@@ -101,13 +101,13 @@ func DecodeRecordKey(key kv.Key) (tableID int64, handle int64, err error) {
 	}
 
 	// record Prefix check
-	if strings.Compare(string(key[tip:prefixLen]), string(recordPrefixSep)) != 0 {
+	if strings.Compare(string(key[tip:tip+recordPrefixSepLength]), string(recordPrefixSep)) != 0 {
 		return tableID, handle,
 			errors.NotValidf(fmt.Sprintf("Record prefix %s", string(key[tip:prefixLen-1])))
 	}
-
+	tip += recordPrefixSepLength
 	// skip the next '_'
-	_, handle, err = codec.DecodeInt(key[prefixLen:])
+	_, handle, err = codec.DecodeInt(key[tip:])
 	return tableID, handle, nil
 }
 
